@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AetherGuard Network Sentinel</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="dashboard-container">
+        
+        <header class="header blur-glass">
+            <div class="brand">
+                <div class="pulse-indicator"></div>
+                <h1>AetherGuard Network Sentinel</h1>
+            </div>
+            <button id="start-btn" class="btn primary-btn">Start Live Stream</button>
+        </header>
+
+        <section class="metrics-grid">
+            <div class="metric-card blur-glass">
+                <h3>Total Packets Evaluated</h3>
+                <div class="value cyber-text" id="total-packets">0</div>
+            </div>
+            <div class="metric-card blur-glass">
+                <h3>Normal Traffic</h3>
+                <div class="value safe-text" id="normal-packets">0</div>
+            </div>
+            <div class="metric-card blur-glass alert-border">
+                <h3>🚨 Attacks Blocked</h3>
+                <div class="value danger-text" id="alert-packets">0</div>
+            </div>
+            <div class="metric-card blur-glass chart-container">
+               <div class="donut-chart" id="threat-ring">
+                   <div class="inner-circle"><span id="threat-percent">0%</span></div>
+               </div>
+               <h3 style="margin-top: 10px;">Threat Level</h3>
+            </div>
+        </section>
+
+        <section class="live-feed blur-glass">
+            <h2>Real-Time Network Stream</h2>
+            <div class="table-wrapper">
+                <table id="packet-table">
+                    <thead>
+                        <tr>
+                            <th>Packet ID</th>
+                            <th>Connection Details</th>
+                            <th>Status</th>
+                            <th>Confidence</th>
+                        </tr>
+                    </thead>
+                    <tbody id="log-body">
+                        <!-- Rows dynamically populated -->
+                        <tr class="placeholder-row"><td colspan="4">Waiting for traffic stream to initialize...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </div>
+
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>
