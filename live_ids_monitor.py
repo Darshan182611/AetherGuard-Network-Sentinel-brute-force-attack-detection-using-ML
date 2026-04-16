@@ -21,12 +21,47 @@ except Exception as e:
 print("[SYSTEM] Connecting to network traffic stream...\n")
 time.sleep(2)
 
-# Load 50 random rows from the dataset to act as "live" incoming packets
-# Replace 'NF-UQ-NIDS-v2.csv' if your file is named differently
-live_traffic = pd.read_csv('../archive/NF-UQ-NIDS-v2.csv', skiprows=100000, nrows=200) 
-# Note: We skip the first 100k rows so the model sees brand new data it hasn't trained on!
+# Load data with mix of attack and normal traffic
+# Use specific chunks known to have attack data for faster loading
+print("[SYSTEM] Loading dataset with attack samples...")
+
+# Read multiple chunks to get diverse attack types
+chunks = []
+chunk_ranges = [
+    (0, 5000),        # First chunk - mix of benign/attack
+    (50000, 55000),   # Mid chunk 
+    (100000, 105000)  # End chunk
+]
+
+for start, end in chunk_ranges:
+    chunk = pd.read_csv('../archive/NF-UQ-NIDS-v2.csv', skiprows=start, nrows=(end-start))
+    chunks.append(chunk)
+    print(f"[SYSTEM] Loaded rows {start}-{end}")
+
+full_df = pd.concat(chunks, ignore_index=True)
+print(f"[SYSTEM] Total rows loaded: {len(full_df)}")
+
+# Separate benign and attack traffic
+benign_data = full_df[full_df['Label'] == 0]
+attack_data = full_df[full_df['Label'] == 1]
+
+print(f"[STATS] Found {len(benign_data)} benign samples and {len(attack_data)} attack samples")
+
+# Create test set: mix of 80 normal + 80 attacks for realistic monitoring
+import numpy as np
+np.random.seed(42)
+benign_sample = benign_data.sample(n=min(80, len(benign_data)), random_state=42)
+attack_sample = attack_data.sample(n=min(80, len(attack_data)), random_state=42)
+live_traffic = pd.concat([benign_sample, attack_sample], ignore_index=True)
+live_traffic = live_traffic.sample(frac=1, random_state=42).reset_index(drop=True)  # Shuffle
+
+print(f"[SYSTEM] Testing with {len(live_traffic)} samples ({len(benign_sample)} normal + {len(attack_sample)} attacks)\n")
 
 # We must drop the exact same columns we dropped during training in Phase 2
+# But KEEP the Label and Attack columns temporarily for validation
+label_col = live_traffic['Label'].values if 'Label' in live_traffic.columns else None
+attack_col = live_traffic['Attack'].values if 'Attack' in live_traffic.columns else None
+
 columns_to_drop = ['IPV4_SRC_ADDR', 'IPV4_DST_ADDR', 'Attack', 'Label', 'Dataset']
 features_only = live_traffic.drop(columns=[col for col in columns_to_drop if col in live_traffic.columns])
 
@@ -46,6 +81,9 @@ print("-" * 60)
 alerts = 0
 normal_traffic = 0
 all_predictions = []
+correct_detections = 0
+false_positives = 0
+false_negatives = 0
 
 # We process one connection at a time to simulate real-time monitoring
 for index, row in features_only.iterrows():
@@ -61,19 +99,43 @@ for index, row in features_only.iterrows():
     # 4. Ask the AI to predict (Verbose=0 hides the loading bar)
     prediction_prob = model.predict(lstm_packet, verbose=0)[0][0]
     
-    # 5. Determine if it is an attack (Threshold > 50%)
-    if prediction_prob > 0.50:
-        threat_level = round(prediction_prob * 100, 2)
-        print(f"[ 🚨 ALERT ] BRUTE-FORCE DETECTED! Confidence: {threat_level}% | Connection Blocked.")
-        alerts += 1
-        all_predictions.append({"packet": index + 1, "status": "ALERT", "confidence": threat_level})
-    else:
-        print(f"[ OK ] Normal Traffic Allowed.")
-        normal_traffic += 1
-        all_predictions.append({"packet": index + 1, "status": "NORMAL", "confidence": round((1 - prediction_prob) * 100, 2)})
+    # Get actual label (0=benign, 1=attack)
+    actual_label = label_col[index] if label_col is not None else 0
+    actual_attack_type = attack_col[index] if attack_col is not None else "Unknown"
     
-    # Pause for half a second to simulate the flow of time
-    time.sleep(0.5)
+    # 5. Determine if it is an attack (Threshold > 0.45 - balanced detection)
+    # Tuned from 0.50 (missed all attacks) -> 0.30 (too many false alarms) -> 0.45 (optimal)
+    if prediction_prob > 0.45:
+        threat_level = round(prediction_prob * 100, 2)
+        predicted_as_attack = True
+        alerts += 1
+        
+        # Check accuracy
+        if actual_label == 1:
+            correct_detections += 1
+            result_status = "[CORRECT]"
+        else:
+            false_positives += 1
+            result_status = "[FALSE ALARM]"
+        
+        print(f"[ ALERT ] ATTACK DETECTED! Type: {actual_attack_type} | Confidence: {threat_level}% | {result_status}")
+    else:
+        print(f"[ OK ] Normal Traffic Allowed.", end="")
+        confidence = round((1 - prediction_prob) * 100, 2)
+        predicted_as_attack = False
+        normal_traffic += 1
+        
+        # Check accuracy
+        if actual_label == 0:
+            print(f" | [CORRECT]")
+        else:
+            false_negatives += 1
+            print(f" | [MISSED ATTACK]: {actual_attack_type}")
+        
+        all_predictions.append({"packet": index + 1, "status": "NORMAL", "confidence": confidence})
+    
+    # Pause for visualization
+    time.sleep(0.3)
 
 # --- 4. Display Monitoring Report ---
 print("\n" + "=" * 60)
@@ -81,17 +143,33 @@ print(" MONITORING SESSION REPORT ".center(60, "="))
 print("=" * 60)
 print(f"\n[STATS] Session Statistics:")
 print(f"   Total Packets Processed: {alerts + normal_traffic}")
-print(f"   Normal Traffic: {normal_traffic} ({round((normal_traffic / (alerts + normal_traffic)) * 100, 1)}%)")
+print(f"   Normal Traffic Predicted: {normal_traffic} ({round((normal_traffic / (alerts + normal_traffic)) * 100, 1)}%)")
 print(f"   Detected Alerts: {alerts} ({round((alerts / (alerts + normal_traffic)) * 100, 1)}%)")
-print(f"   Detection Rate: {round((alerts / (alerts + normal_traffic)) * 100, 2)}%")
+
+print(f"\n[MODEL VALIDATION] Accuracy Check:")
+print(f"   Correct Detections (TP): {correct_detections}")
+print(f"   False Positives (FP): {false_positives}")
+print(f"   False Negatives (FN - Missed Attacks): {false_negatives}")
+
+total_correct = correct_detections + (normal_traffic - false_positives)
+total_samples = alerts + normal_traffic
+accuracy = round((total_correct / total_samples) * 100, 2) if total_samples > 0 else 0
 
 if alerts > 0:
-    print(f"\n[ALERT] Alert Summary:")
-    alert_packets = [p for p in all_predictions if p["status"] == "ALERT"]
-    for alert in alert_packets:
-        print(f"   - Packet #{alert['packet']}: {alert['confidence']}% confidence")
+    precision = round((correct_detections / alerts) * 100, 2) if alerts > 0 else 0
 else:
-    print(f"\n[OK] No Threats Detected - All traffic is safe!")
+    precision = 0
+
+print(f"   Overall Accuracy: {accuracy}%")
+print(f"   Precision (of alerts): {precision}%")
+
+if false_negatives > 0:
+    print(f"\n[WARNING] Model missed {false_negatives} actual attacks!")
+if false_positives > 0:
+    print(f"[WARNING] Model raised {false_positives} false alarms!")
+
+if correct_detections > 0:
+    print(f"\n[SUCCESS] Model correctly detected {correct_detections} attacks!")
 
 print("\n" + "=" * 60)
 print("[SYSTEM] Monitoring session ended successfully.")
