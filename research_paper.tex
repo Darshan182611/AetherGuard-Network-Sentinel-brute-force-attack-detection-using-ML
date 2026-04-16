@@ -246,23 +246,23 @@ The complete system was implemented in Python 3.9+ utilizing scikit-learn 1.3.0 
 \begin{table}[H]
 \centering
 \caption{Model Training Hyperparameters and Configuration}
-\begin{tabular}{|l|l|p{4cm}|}
+\begin{tabular}{|l|l|p{5.5cm}|}
 \hline
 \textbf{Parameter} & \textbf{Value} & \textbf{Justification} \\
 \hline
 Algorithm & Logistic Regression & Proven effectiveness for binary classification \\
 \hline
-Solver & LBFGS (Limited-memory BFGS) & Optimal for small-medium datasets (<50k); fallback to liblinear \\
+Solver & LBFGS & Optimal for small-medium datasets \\
 \hline
-Max Iterations & 1000 & Ensures convergence for problematic datasets \\
+Max Iterations & 1000 & Ensures convergence \\
 \hline
-Random State & 42 & Reproducible results across runs \\
+Random State & 42 & Reproducible results \\
 \hline
 Test Split & 80/20 & Stratified for class imbalance \\
 \hline
-Features & 41 network metrics & All features from NF-UQ-NIDS-v2 \\
+Features & 41 metrics & All features from NF-UQ-NIDS-v2 \\
 \hline
-Scaling & StandardScaler & Zero-mean, unit-variance normalization \\
+Scaling & StandardScaler & Zero-mean, unit-variance \\
 \hline
 \end{tabular}
 \end{table}
